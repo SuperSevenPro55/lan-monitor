@@ -3,12 +3,16 @@ package ru.ssp55.lanmonitor.service;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.util.Enumeration;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static java.lang.System.currentTimeMillis;
 
@@ -46,7 +50,8 @@ public class NetworkScannerService {
 
                         InetAddress address = InetAddress.getByName(ipToTest);
                         if (address.isReachable(200)) {
-                            System.out.println(msg.get("scanner.found", ipToTest));
+                            String macAddress = getMacFromArpTable(ipToTest);
+                            System.out.println(msg.get("scanner.found", ipToTest, macAddress));
                         }
                     } catch (Exception ignored) {
 
@@ -70,6 +75,10 @@ public class NetworkScannerService {
         System.out.println(msg.get("scanner.finish", endTime - startTime));
     }
 
+    /**
+     * Находит IP-адрес устройства, на котором запущен сервер через сканирование интерфейсов, подключенных к устройству
+     * @return IP-адрес устройства, на котором запущен сервер
+     */
     public String getLocalIpAddress() {
         try {
             Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
@@ -95,5 +104,38 @@ public class NetworkScannerService {
         }
 
         return null;
+    }
+
+    /**
+     * Запускает процесс в консоли, выводящий ARP-таблицу. Находит там MAC-адрес
+     * @param ip IP-адрес, у которого будет находиться MAC-адрес
+     * @return MAC-адрес указанного IP-адреса
+     */
+    private String getMacFromArpTable(String ip) {
+        try {
+            ProcessBuilder processBuilder = new ProcessBuilder("arp", "-a", ip);
+            Process process = processBuilder.start();
+
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+
+            StringBuilder systemOutput = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                systemOutput.append(line);
+            }
+            reader.close();
+
+            Pattern pattern = Pattern.compile("([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})");
+            Matcher matcher = pattern.matcher(systemOutput.toString());
+
+            if (matcher.find()) {
+                return matcher.group().replace("-", ":").toUpperCase();
+            }
+
+        } catch (Exception e) {
+            System.out.println(msg.get("scanner.error.arp.table.read", e.getMessage()));
+        }
+
+        return msg.get("scanner.error.arp.table.found");
     }
 }
