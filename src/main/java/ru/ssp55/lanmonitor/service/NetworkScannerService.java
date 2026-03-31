@@ -14,21 +14,39 @@ import static java.lang.System.currentTimeMillis;
 
 @Service
 public class NetworkScannerService {
-    private final String SUBNET = getLocalSubnet();
+    private final MessageManager msg;
 
-    @Scheduled(fixedRate = 60000)
+    public NetworkScannerService(MessageManager msg) {
+        this.msg = msg;
+    }
+
+    @Scheduled(fixedRate = 30000)
     public void scanNetwork() {
-        System.out.println("Сканирование сети: " + SUBNET + "x");
+        String localIp = getLocalIpAddress();
+        if (localIp == null) {
+            System.out.println(msg.get("scanner.no.connection"));
+            return;
+        }
+
+        String subnet = localIp.substring(0, localIp.lastIndexOf(".") + 1);
+
+        System.out.println(msg.get("scanner.server.ip", localIp));
+        System.out.println(msg.get("scanner.start", subnet));
+
         long startTime = currentTimeMillis();
 
         try (ExecutorService executor = Executors.newFixedThreadPool(50)) {
             for (int i = 1; i <= 255; i++) {
-                final String ipToTest = SUBNET + i;
+                final String ipToTest = subnet + i;
                 executor.submit(() -> {
                     try {
+                        if (ipToTest.equals(localIp)) {
+                            return;
+                        }
+
                         InetAddress address = InetAddress.getByName(ipToTest);
                         if (address.isReachable(200)) {
-                            System.out.println("Найдено устройство: " + ipToTest);
+                            System.out.println(msg.get("scanner.found", ipToTest));
                         }
                     } catch (Exception ignored) {
 
@@ -49,10 +67,10 @@ public class NetworkScannerService {
 
         long endTime = System.currentTimeMillis();
 
-        System.out.println("Сканирование завершено за " + (endTime - startTime) + "мс!");
+        System.out.println(msg.get("scanner.finish", endTime - startTime));
     }
 
-    public String getLocalSubnet() {
+    public String getLocalIpAddress() {
         try {
             Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
             while (interfaces.hasMoreElements()) {
@@ -65,19 +83,17 @@ public class NetworkScannerService {
                 while (addresses.hasMoreElements()) {
                     InetAddress address = addresses.nextElement();
 
-                    if (address.getHostAddress().contains(".")) {
-                        String ip = address.getHostAddress();
-
-                        return ip.substring(0, ip.lastIndexOf('.') + 1);
+                    if (address.getHostAddress().contains(".") && !address.isLoopbackAddress()) {
+                        return address.getHostAddress();
                     }
                 }
 
             }
 
         } catch (Exception e) {
-            System.out.println("Не удалось получить сеть: " + e.getMessage());
+            System.out.println(msg.get("scanner.error.interfaces", e.getMessage()));
         }
 
-        return "192.168.0.";
+        return null;
     }
 }
